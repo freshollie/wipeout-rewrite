@@ -234,7 +234,7 @@ uint32_t sfx_music_decode_frame(void) {
 	music->buffer_len = fread(music->buffer, 1, qoa_max_frame_size(&music->qoa), music->file);
 
 	uint32_t frame_len;
-	qoa_decode_frame(music->buffer, music->buffer_len, &music->qoa, music->sample_data, &frame_len);
+	qoa_decode_frame(music->buffer, music->buffer_len, &music->qoa, music->sample_data, (int*)&frame_len);
 	music->sample_data_pos = 0;
 	music->sample_data_len = frame_len;
 	return frame_len;

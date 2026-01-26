@@ -6,6 +6,8 @@ USE_GLX ?= false
 DEBUG ?= false
 USER_CFLAGS ?=
 
+TARGET_PS2 ?= 1
+
 L_FLAGS ?= -lm
 C_FLAGS ?= -Isrc/libs/ -std=gnu99 -Wall -Wno-unused-variable $(USER_CFLAGS)
 
@@ -15,10 +17,25 @@ else
 	C_FLAGS := $(C_FLAGS) -O3
 endif
 
+ifeq ($(TARGET_PS2),1)
+  EE_PREFIX ?= mips64r5900el-ps2-elf-
+  EE_AS_PREFIX ?= $(EE_PREFIX)
 
-# Rendeder ---------------------------------------------------------------------
+  CC = $(EE_PREFIX)gcc -std=gnu99
+  CXX= $(EE_PREFIX)g++ -std=gnu99
+  CPP= $(EE_PREFIX)cpp -P
+  AS = $(EE_AS_PREFIX)as
+  LD = $(EE_PREFIX)gcc
+  AR = $(EE_PREFIX)ar
+  OBJCOPY = $(EE_PREFIX)objcopy
+  OBJDUMP = $(EE_PREFIX)objdump
+  STRIP = $(EE_PREFIX)strip
+endif
 
-ifeq ($(RENDERER), GL)
+# Renderer ---------------------------------------------------------------------
+ifeq ($(TARGET_PS2), 1)
+	RENDERER_SRC = src/render_ps2.c
+else ifeq ($(RENDERER), GL)
 	RENDERER_SRC = src/render_gl.c
 	C_FLAGS := $(C_FLAGS) -DRENDERER_GL
 else ifeq ($(RENDERER), SOFTWARE)
@@ -28,15 +45,19 @@ else
 $(error Unknown RENDERER)
 endif
 
+ifeq ($(TARGET_PS2), 1)
 ifeq ($(GL_VERSION), GLES2)
 	C_FLAGS := $(C_FLAGS) -DUSE_GLES2
 endif
+endif
 
 
-
+# PS2 ------------------------------------------------------------------------
+ifeq ($(TARGET_PS2),1)
+	CFLAGS  := $(C_FLAGS) -fno-tree-builtin-call-dce -fno-strict-aliasing -DTARGET_PS2 -D_EE -G0 -I$(PS2SDK)/ee/include -I$(PS2SDK)/common/include -I$(PS2SDK)/ports/include -I$(PS2DEV)/gsKit/include
+	L_FLAGS_PS2 := -Wl,-zmax-page-size=128 -T$(PS2SDK)/ee/startup/linkfile -L$(PS2DEV)/gsKit/lib -L$(PS2SDK)/ee/lib -L$(PS2SDK)/ports/lib -lgskit -ldmakit -lps2_drivers -lmc -lpatches
 # macOS ------------------------------------------------------------------------
-
-ifeq ($(UNAME_S), Darwin)
+else ifeq ($(UNAME_S), Darwin)
 	BREW_HOME := $(shell brew --prefix)
 	C_FLAGS := $(C_FLAGS) -x objective-c -I/opt/homebrew/include -D_THREAD_SAFE -w
 	L_FLAGS := $(L_FLAGS) -L$(BREW_HOME)/lib -framework Foundation
@@ -90,9 +111,17 @@ endif
 
 # Source files -----------------------------------------------------------------
 
-TARGET_NATIVE ?= wipegame
-BUILD_DIR = build/obj/native
-BUILD_DIR_WASM = build/obj/wasm
+BUILD_DIR_BASE := build
+
+TARGET ?= wipegame
+BUILD_DIR ?= $(BUILD_DIR_BASE)/native
+
+ifeq ($(TARGET_PS2),1)
+	BUILD_DIR := $(BUILD_DIR_BASE)/ps2
+	TARGET := $(BUILD_DIR)/$(TARGET).elf
+endif
+
+BUILD_DIR_WASM = build/wasm/obj
 
 WASM_RELEASE_DIR ?= build/wasm
 TARGET_WASM ?= $(WASM_RELEASE_DIR)/wipeout.js
@@ -136,11 +165,15 @@ COMMON_DEPS = $(patsubst %.c, $(BUILD_DIR)/%.d, $(COMMON_SRC))
 sdl: C_FLAGS += $(shell sdl2-config --cflags)
 sdl: $(BUILD_DIR)/src/platform_sdl.o
 sdl: $(COMMON_OBJ)
-	$(CC) $^ -o $(TARGET_NATIVE) $(L_FLAGS) $(L_FLAGS_SDL)
+	$(CC) $^ -o $(TARGET) $(L_FLAGS) $(L_FLAGS_SDL)
 
 sokol: $(BUILD_DIR)/src/platform_sokol.o
 sokol: $(COMMON_OBJ)
-	$(CC) $^ -o $(TARGET_NATIVE) $(L_FLAGS) $(L_FLAGS_SOKOL)
+	$(CC) $^ -o $(TARGET) $(L_FLAGS) $(L_FLAGS_SOKOL)
+
+ps2: $(BUILD_DIR)/src/platform_ps2.o
+ps2: $(COMMON_OBJ)
+	$(CC) $^ -o $(TARGET) $(L_FLAGS) $(L_FLAGS_PS2)
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
