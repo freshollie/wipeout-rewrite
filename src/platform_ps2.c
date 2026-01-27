@@ -515,7 +515,7 @@ void platform_video_init(void) {
     // this could be enabled for hires, but I don't like it
     gs_global->Dithering = use_hires ? GS_SETTING_ON : GS_SETTING_OFF;
     // hires runs out of VRAM if using more than 16bit color
-    gs_global->PSM = use_hires ? GS_PSM_CT16 : GS_PSM_CT24;
+    gs_global->PSM = use_hires ? GS_PSM_CT16 : GS_PSM_CT32;
     gs_global->PSMZ = GS_PSMZ_16; // 16-bit unsigned zbuffer
 
     if (use_hires) {

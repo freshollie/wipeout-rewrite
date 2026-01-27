@@ -26,29 +26,6 @@ uint16_t RENDER_NO_TEXTURE;
 void render_cleanup(void) {}
 
 
-void render_set_view(vec3_t pos, vec3_t angles) {
-	// view_mat = mat4_identity();
-	// mat4_set_translation(&view_mat, vec3(0, 0, 0));
-	// mat4_set_roll_pitch_yaw(&view_mat, vec3(angles.x, -angles.y + M_PI, angles.z + M_PI));
-	// mat4_translate(&view_mat, vec3_inv(pos));
-	// mat4_set_yaw_pitch_roll(&sprite_mat, vec3(-angles.x, angles.y - M_PI, 0));
-
-	// render_set_model_mat(&mat4_identity());
-}
-
-void render_set_model_mat(mat4_t *m) {
-	mat4_t vm_mat;
-	mat4_mul(&vm_mat, &view_mat, m);
-	mat4_mul(&mvp_mat, &projection_mat, &vm_mat);
-}
-
-
-vec3_t render_transform(vec3_t pos) {
-	return vec3_transform(vec3_transform(pos, &view_mat), &projection_mat);
-}
-
-
-
 // ----- PS2 -----
 
 // TODO: Clean up
@@ -215,6 +192,11 @@ static inline float fclamp(const float v, const float min, const float max) {
     return (v < min) ? min : (v > max) ? max : v;
 }
 
+
+static void gfx_ps2_select_texture(int tile, uint16_t texture_id) {
+    cur_tex[tile] = last_tex = textures + texture_id;
+}
+
 void render_init(vec2i_t screen_size) {
 	gsKit_mode_switch(gs_global, GS_ONESHOT);
 
@@ -252,6 +234,7 @@ void render_init(vec2i_t screen_size) {
 		rgba(128,128,128,255), rgba(128,128,128,255)
 	};
 	RENDER_NO_TEXTURE = render_texture_create(2, 2, white_pixels);
+    gfx_ps2_select_texture(0, RENDER_NO_TEXTURE);
 }
 
 static void gfx_ps2_set_sampler_parameters(int tile, bool linear_filter) {
@@ -351,10 +334,6 @@ static void gfx_ps2_upload_texture_ext(rgba_t *buf, int width, int height) {
     // memcpy(last_tex->tex.Mem, buf, in_size);
 }
 
-static void gfx_ps2_select_texture(int tile, uint16_t texture_id) {
-    cur_tex[tile] = last_tex = textures + texture_id;
-}
-
 static bool tex_changed(uint16_t texture_id) {
 	if (last_tex == NULL) {
 		return false;
@@ -396,6 +375,7 @@ void render_push_2d(vec2i_t pos, vec2i_t size, rgba_t color, uint16_t texture_in
 
 void render_push_2d_tile(vec2i_t pos, vec2i_t uv_offset, vec2i_t uv_size, vec2i_t size, rgba_t color, uint16_t texture_index) {
 	error_if(texture_index >= textures_len, "Invalid texture %d", texture_index);
+    printf("push 2d tile %d %d?\n", pos.x, pos.y);
 	render_push_tris((tris_t){
 		.vertices = {
 			{.pos = {pos.x, pos.y + size.y, 0}, .uv = {uv_offset.x , uv_offset.y + uv_size.y}, .color = color},
@@ -490,6 +470,14 @@ static inline void viewport_transform(float *v) {
     v[1] = v[1] * -r_view.hh + r_view.cy;
     v[2] = fclamp((1.0f - v[2]) * 65535.f + z_offset, 0.f, 65535.f);
 }
+
+static inline void viewport_transform_vertex(vertex_t *v) {
+    v->pos.x = v->pos.x *  r_view.hw + r_view.cx;
+    v->pos.y = v->pos.y * -r_view.hh + r_view.cy;
+    v->pos.z = fclamp((1.0f - v->pos.z) * 65535.f + z_offset, 0.f, 65535.f);
+    v->pos.z = 0x800000;
+}
+
 
 // these are exactly the same as their regular varieties, but the mapping type is set to ST (UV / w)
 
@@ -791,6 +779,11 @@ static void draw_set_clamp(const u32 clamp_s, const u32 clamp_t) {
 
     *p_data++ = GS_CLAMP_1 + gs_global->PrimContext;
 }
+
+#define MAX_BUFFERED 256
+static float buf_vbo[MAX_BUFFERED * (26 * 3)] __attribute__((__aligned__(16))); // 3 vertices in a triangle and 26 floats per vtx
+static size_t buf_vbo_len;
+static size_t buf_vbo_num_tris;
 
 static inline void draw_triangles_tex_col(float buf_vbo[], const size_t buf_vbo_num_tris, const size_t vtx_stride, const size_t tri_stride) {
     ColorQ c0 = (ColorQ) { { 0x80, 0x80, 0x80, 0x80, 1.f } };
@@ -1109,32 +1102,64 @@ static void gfx_ps2_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_t b
     const size_t tri_stride = vtx_stride * 3;
 
     const bool zge = z_test && z_decal;
-    draw_update_env(a_test, z_test + zge + 1, cur_shader->use_fog);
+    draw_update_env(a_test, z_test + zge + 1, false);
 
-    if (cur_shader->used_textures[0]) {
-        draw_set_clamp(cur_tex[0]->clamp_s, cur_tex[0]->clamp_t);
-        gsKit_TexManager_bind(gs_global, &cur_tex[0]->tex);
-    }
+    // if (cur_shader->used_textures[0]) {
+    //     draw_set_clamp(cur_tex[0]->clamp_s, cur_tex[0]->clamp_t);
+    //     gsKit_TexManager_bind(gs_global, &cur_tex[0]->tex);
+    // }
 
-    switch (cur_shader->draw_fn) {
-        case DRAW_TEX0_TEX1_COL0:  draw_triangles_tex_tex_col(buf_vbo, buf_vbo_num_tris, vtx_stride, tri_stride); break;
-        case DRAW_TEX0_COL0_COL1:  draw_triangles_tex_col_col(buf_vbo, buf_vbo_num_tris, vtx_stride, tri_stride); break;
-        case DRAW_TEX0_COL0_TEXA:  draw_triangles_tex_col_texalpha(buf_vbo, buf_vbo_num_tris, vtx_stride, tri_stride); break;
-        case DRAW_TEX0_COL0_DECAL: draw_triangles_tex_col_decal(buf_vbo, buf_vbo_num_tris, vtx_stride, tri_stride); break;
-        case DRAW_TEX0_COL0_FOG:   draw_triangles_tex_col_fog(buf_vbo, buf_vbo_num_tris, vtx_stride, tri_stride); break;
+    switch (DRAW_TEX0_COL0) {
+        // case DRAW_TEX0_TEX1_COL0:  draw_triangles_tex_tex_col(buf_vbo, buf_vbo_num_tris, vtx_stride, tri_stride); break;
+        // case DRAW_TEX0_COL0_COL1:  draw_triangles_tex_col_col(buf_vbo, buf_vbo_num_tris, vtx_stride, tri_stride); break;
+        // case DRAW_TEX0_COL0_TEXA:  draw_triangles_tex_col_texalpha(buf_vbo, buf_vbo_num_tris, vtx_stride, tri_stride); break;
+        // case DRAW_TEX0_COL0_DECAL: draw_triangles_tex_col_decal(buf_vbo, buf_vbo_num_tris, vtx_stride, tri_stride); break;
+        // case DRAW_TEX0_COL0_FOG:   draw_triangles_tex_col_fog(buf_vbo, buf_vbo_num_tris, vtx_stride, tri_stride); break;
         case DRAW_TEX0_COL0:       draw_triangles_tex_col(buf_vbo, buf_vbo_num_tris, vtx_stride, tri_stride); break;
-        case DRAW_TEX0_FOG:        draw_triangles_tex_fog(buf_vbo, buf_vbo_num_tris, vtx_stride, tri_stride); break;
-        case DRAW_TEX0:            draw_triangles_tex(buf_vbo, buf_vbo_num_tris, vtx_stride, tri_stride); break;
-        case DRAW_COL0_FOG:        draw_triangles_col_fog(buf_vbo, buf_vbo_num_tris, vtx_stride, tri_stride, (cur_shader->num_inputs > 1)); break;
-        default:                   draw_triangles_col(buf_vbo, buf_vbo_num_tris, vtx_stride, tri_stride, (cur_shader->num_inputs > 1)); break;
+        // case DRAW_TEX0_FOG:        draw_triangles_tex_fog(buf_vbo, buf_vbo_num_tris, vtx_stride, tri_stride); break;
+        // case DRAW_TEX0:            draw_triangles_tex(buf_vbo, buf_vbo_num_tris, vtx_stride, tri_stride); break;
+        // case DRAW_COL0_FOG:        draw_triangles_col_fog(buf_vbo, buf_vbo_num_tris, vtx_stride, tri_stride, (cur_shader->num_inputs > 1)); break;
+        // default:                   draw_triangles_col(buf_vbo, buf_vbo_num_tris, vtx_stride, tri_stride, (cur_shader->num_inputs > 1)); break;
     }
 }
 
 
 void render_flush(void) {
-    if (tris_len == 0) {
-		return;
-	}
+    if (buf_vbo_len > 0) {
+        int num = buf_vbo_num_tris;
+        gfx_ps2_draw_triangles(buf_vbo, buf_vbo_len, buf_vbo_num_tris);
+        buf_vbo_len = 0;
+        buf_vbo_num_tris = 0;
+    }
+    // if (tris_len == 0) {
+	// 	return;
+	// }
+
+    // ColorQ c0 = (ColorQ) { { 0x80, 0x80, 0x80, 0x80, 1.f } };
+    // ColorQ c1 = (ColorQ) { { 0x80, 0x80, 0x80, 0x80, 1.f } };
+    // ColorQ c2 = (ColorQ) { { 0x80, 0x80, 0x80, 0x80, 1.f } };
+
+    // register float *v0, *v1, *v2;
+    // register float *p = buf_vbo;
+    // register size_t i;
+
+    // const int cofs = 7;
+    // for (i = 0; i < buf_vbo_num_tris; ++i, p += tri_stride) {
+    //     v0 = p + 0;           viewport_transform(v0);
+    //     v1 = v0 + vtx_stride; viewport_transform(v1);
+    //     v2 = v1 + vtx_stride; viewport_transform(v2);
+    //     c0.rgba = ((u32 *)v0)[cofs]; c0.q = v0[3];
+    //     c1.rgba = ((u32 *)v1)[cofs]; c1.q = v1[3];
+    //     c2.rgba = ((u32 *)v2)[cofs]; c2.q = v2[3];
+    //     gsKit_prim_triangle_goraud_texture_3d_st_fog(
+    //         gs_global, &cur_tex[0]->tex,
+    //         v0[0], v0[1], v0[2], v0[4], v0[5],
+    //         v1[0], v1[1], v1[2], v1[4], v1[5],
+    //         v2[0], v2[1], v2[2], v2[4], v2[5],
+    //         c0.word, c1.word, c2.word,
+    //         v0[6], v1[6], v2[6]
+    //     );
+    // }
 
 	// if (texture_mipmap_is_dirty) {
 	// 	glGenerateMipmap(GL_TEXTURE_2D);
@@ -1160,22 +1185,162 @@ void render_set_depth_offset(float offset) {
 }
 void render_set_screen_position(vec2_t pos) {
 	render_flush();
-	// TODO: this couldbr wrong
-	gs_global->OffsetX = pos.x;
-	gs_global->OffsetY = pos.y;
+	// // TODO: this couldbr wrong
+	// gs_global->OffsetX = pos.x;
+	// gs_global->OffsetY = pos.y;
 }
 
-void render_push_tris(tris_t tris, uint16_t texture_index) {
-	struct Texture* t = &textures[texture_index];
-    gsKit_TexManager_bind(gs_global, &t->tex);
-	// t = &textures[texture_index];
+#define GFX_OUT_COORD(x) (x * inv_w)
 
-	// for (int i = 0; i < 3; i++) {
-	// 	tris.vertices[i].uv.x += t->offset.x;
-	// 	tris.vertices[i].uv.y += t->offset.y;
-	// }
-	// tris_buffer[tris_len++] = tris;
-	// TODO handle triangles
+void render_push_tris(tris_t tris, uint16_t texture_index) {
+    // const struct LoadedVertex *v_arr[3] = {{tris[0].x, tris[0].y, tris[0].z, 0}, v2, v3};
+    error_if(texture_index >= textures_len, "Invalid texture %d", texture_index);
+
+    gfx_ps2_select_texture(0, texture_index);
+    
+	struct Texture* t = cur_tex[0];
+
+    const bool zge = z_test && z_decal;
+    draw_update_env(a_test, z_test + zge + 1, false);
+
+    // if (cur_shader->used_textures[0]) {
+    draw_set_clamp(t->clamp_s, t->clamp_t);
+    gsKit_TexManager_bind(gs_global, &t->tex);
+
+    ColorQ c0 = (ColorQ) { { 0x80, 0x80, 0x80, 0x80, 1.f } };
+    ColorQ c1 = (ColorQ) { { 0x80, 0x80, 0x80, 0x80, 1.f } };
+    ColorQ c2 = (ColorQ) { { 0x80, 0x80, 0x80, 0x80, 1.f } };
+
+    vertex_t *v0, *v1, *v2;
+
+    v0 = &tris.vertices[0]; viewport_transform_vertex(v0);
+    v1 = &tris.vertices[1]; viewport_transform_vertex(v1);
+    v2 = &tris.vertices[2]; viewport_transform_vertex(v2);
+    c0.rgba = *(u32*)&v0->color; c0.q = 1.0;
+    c1.rgba = *(u32*)&v1->color; c1.q = 1.0;
+    c2.rgba = *(u32*)&v2->color; c2.q = 1.0;
+    printf("coord %f %f %f %f %f\n", v0->pos.x, v0->pos.y, v0->pos.z, v0->uv.x, v0->uv.y);
+    gsKit_prim_triangle_goraud_texture_3d_st(
+        gs_global, &cur_tex[0]->tex,
+        v0->pos.x, v0->pos.y, v0->pos.z, v0->uv.x, v0->uv.y,
+        v1->pos.x, v1->pos.y, v1->pos.z, v1->uv.x, v1->uv.y,
+        v2->pos.x, v2->pos.y, v2->pos.z, v2->uv.x, v2->uv.y,
+        c0.word, c1.word, c2.word
+    );
+
+//     bool used_textures[2], use_fog = false, use_alpha = false;
+// 	const bool z_is_from_0_to_1 = true;
+
+//     const bool solid_texture = true;
+
+//     for (int i = 0; i < 3; i++) {
+//         const float w = v_arr[i]->w;
+//         const float inv_w = 1.f / w;
+
+//         float z = v_arr[i]->z;
+//         if (z_is_from_0_to_1) z = (z + w) * 0.5f;
+
+//         buf_vbo[buf_vbo_len++] = GFX_OUT_COORD(v_arr[i]->x);
+//         buf_vbo[buf_vbo_len++] = GFX_OUT_COORD(v_arr[i]->y);
+//         buf_vbo[buf_vbo_len++] = GFX_OUT_COORD(z);
+//         buf_vbo[buf_vbo_len++] = inv_w;
+
+//         if (use_texture) {
+//             float u = (v_arr[i]->u - rdp.texture_tile.uls * 8) / 32.0f;
+//             float v = (v_arr[i]->v - rdp.texture_tile.ult * 8) / 32.0f;
+//             if ((rdp.other_mode_h & (3U << G_MDSFT_TEXTFILT)) != G_TF_POINT) {
+//                 // Linear filter adds 0.5f to the coordinates
+//                 u += 0.5f;
+//                 v += 0.5f;
+//             }
+//             u *= inv_tex_width;
+//             v *= inv_tex_height;
+//             // quads with mirror textures on them usually go (-1, +1)
+//             if (mirror_u) u *= 0.5f;
+//             if (mirror_v) v *= 0.5f;
+//             buf_vbo[buf_vbo_len++] = GFX_OUT_COORD(u);
+//             buf_vbo[buf_vbo_len++] = GFX_OUT_COORD(v);
+//         }
+
+//         if (use_fog) {
+//             buf_vbo[buf_vbo_len++] = 255.f - (float)v_arr[i]->color.a; // fog factor (not alpha)
+//         }
+
+//         for (int j = 0; j < num_inputs; j++) {
+//             const union RGBA *color;
+//             union RGBA tmp;
+//             union RGBA out = (union RGBA) { { 0x80, 0x80, 0x80, GFX_ALPHA_ONE } };
+//             for (int k = 0; k < 1 + (use_alpha ? 1 : 0); k++) {
+//                 switch (comb->shader_input_mapping[k][j]) {
+//                     case CC_PRIM:
+//                         color = &rdp.prim_color;
+//                         break;
+//                     case CC_SHADE:
+//                         color = &v_arr[i]->color;
+//                         break;
+//                     case CC_ENV:
+//                         color = &rdp.env_color;
+//                         break;
+//                     case CC_LOD:
+//                     {
+//                         float distance_frac = (v1->w - 3000.0f) / 3000.0f;
+//                         if (distance_frac < 0.0f) distance_frac = 0.0f;
+//                         if (distance_frac > 1.0f) distance_frac = 1.0f;
+//                         tmp.r = tmp.g = tmp.b = tmp.a = distance_frac * 255.0f;
+//                         color = &tmp;
+//                         break;
+//                     }
+//                     default:
+//                         memset(&tmp, 0, sizeof(tmp));
+//                         color = &tmp;
+//                         break;
+//                 }
+// #ifndef GFX_PACK_COLORS
+//                 if (k == 0) {
+//                     buf_vbo[buf_vbo_len++] = GFX_COLOR_CONV(color->r);
+//                     buf_vbo[buf_vbo_len++] = GFX_COLOR_CONV(color->g);
+//                     buf_vbo[buf_vbo_len++] = GFX_COLOR_CONV(color->b);
+//                 } else {
+//                     if (use_fog && color == &v_arr[i]->color) {
+//                         // Shade alpha is 100% for fog
+//                         buf_vbo[buf_vbo_len++] = 1.f;
+//                     } else {
+//                         buf_vbo[buf_vbo_len++] = GFX_ALPHA_CONV(color->a);
+//                     }
+//                 }
+//             }
+// #else
+//                 if (k == 0) {
+//                     // only halve colors if we're going full modulate
+//                     if (solid_texture) {
+//                         out.r = GFX_COLOR_CONV(color->r);
+//                         out.g = GFX_COLOR_CONV(color->g);
+//                         out.b = GFX_COLOR_CONV(color->b);
+//                     } else {
+//                         out.r = color->r;
+//                         out.g = color->g;
+//                         out.b = color->b;
+//                     }
+//                 } else {
+//                     if (use_fog && color == &v_arr[i]->color)
+//                         // Shade alpha is 100% for fog
+//                         out.a = GFX_ALPHA_ONE;
+//                     else
+//                         out.a = GFX_ALPHA_CONV(color->a);
+//                 }
+//             }
+//             ((uint32_t *)buf_vbo)[buf_vbo_len++] = out.rgba;
+// #endif
+//         }
+//         /*union RGBA *color = &v_arr[i]->color;
+//         buf_vbo[buf_vbo_len++] = color->r / 255.0f;
+//         buf_vbo[buf_vbo_len++] = color->g / 255.0f;
+//         buf_vbo[buf_vbo_len++] = color->b / 255.0f;
+//         buf_vbo[buf_vbo_len++] = color->a / 255.0f;*/
+//     }
+//     if (++buf_vbo_num_tris == MAX_BUFFERED) {
+//         render_flush();
+//     }
 }
 
 
@@ -1190,6 +1355,7 @@ void render_textures_reset(uint16_t len) {
 			rgba(128,128,128,255), rgba(128,128,128,255)
 		};
 		RENDER_NO_TEXTURE = render_texture_create(2, 2, white_pixels);
+        gfx_ps2_select_texture(0, RENDER_NO_TEXTURE);
 		return;
 	}
 }
@@ -1265,6 +1431,30 @@ void render_set_view_2d(void) {
 	// );
 }
 
+
+void render_set_view(vec3_t pos, vec3_t angles) {
+    render_flush();
+	view_mat = mat4_identity();
+	mat4_set_translation(&view_mat, vec3(0, 0, 0));
+	mat4_set_roll_pitch_yaw(&view_mat, vec3(angles.x, -angles.y + M_PI, angles.z + M_PI));
+	mat4_translate(&view_mat, vec3_inv(pos));
+	mat4_set_yaw_pitch_roll(&sprite_mat, vec3(-angles.x, angles.y - M_PI, 0));
+
+	render_set_model_mat(&mat4_identity());
+}
+
+void render_set_model_mat(mat4_t *m) {
+    render_flush();
+	mat4_t vm_mat;
+	mat4_mul(&vm_mat, &view_mat, m);
+	mat4_mul(&mvp_mat, &projection_mat, &vm_mat);
+}
+
+
+vec3_t render_transform(vec3_t pos) {
+	return vec3_transform(vec3_transform(pos, &view_mat), &projection_mat);
+}
+
 void render_set_cull_backface(bool enabled) {
 	render_flush();
 	cull_backface = enabled;
@@ -1275,11 +1465,13 @@ vec2i_t render_size(void) {
 }
 
 void render_frame_prepare(void) {
-	draw_clear(c_black);
-	gfx_ps2_set_depth_mask(true);
+	draw_clear(c_white);
+    gfx_ps2_set_viewport(0, 0, screen_size.x, screen_size.y);
 	gfx_ps2_set_depth_test(true);
+	gfx_ps2_set_depth_mask(true);
 }
 
 void render_frame_end(void) {
 	render_flush();
+    gfx_ps2_set_viewport(0, 0, screen_size.x, screen_size.y);
 }
