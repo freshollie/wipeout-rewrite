@@ -31,6 +31,7 @@ void system_exit(void) {
 
 void system_update(void) {
 	double time_real_now = platform_now();
+	// printf("%f\n", time_real_now);
 	double real_delta = time_real_now - time_real;
 	time_real = time_real_now;
 	tick_last = min(real_delta, 0.1) * time_scale;

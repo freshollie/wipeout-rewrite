@@ -19,4 +19,11 @@ uint32_t platform_store_userdata(const char *name, void *bytes, int32_t len);
 	rgba_t *platform_get_screenbuffer(int32_t *pitch);
 #endif
 
+#if defined(TARGET_PS2)
+#include <gsKit.h>
+
+extern GSGLOBAL *gs_global;
+#endif
+
+
 #endif

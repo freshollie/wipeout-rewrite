@@ -1,10 +1,31 @@
 // #include "SDL.h"
+#include <stdlib.h>
+#include <tamtypes.h>
+#include <kernel.h>
+#include <iopcontrol.h>
+#include <sifrpc.h>
+#include <loadfile.h>
+#include <sbv_patches.h>
+#include <ps2_filesystem_driver.h>
+
+#define PS2_MEMCARD_IMPLEMENTATION
+#include <ps2_memcard.h>
+#include <stdio.h>
+#include <kernel.h>
+#include <ps2_audio_driver.h>
+#include <gsKit.h>
+
+#include "audsrv.h"
+
 
 #include "platform.h"
 #include "input.h"
 #include "system.h"
 #include "utils.h"
 #include "mem.h"
+
+
+#define ARRAY_COUNT(arr) (s32)(sizeof(arr) / sizeof(arr[0]))
 
 static uint64_t perf_freq = 0;
 static bool wants_to_exit = false;
@@ -15,6 +36,201 @@ static void (*audio_callback)(float *buffer, uint32_t len) = NULL;
 static char *path_assets = "";
 static char *path_userdata = "";
 static char *temp_path = NULL;
+
+#define SAMPLES_HIGH 544
+#define SAMPLES_LOW 528
+
+static bool audio_ps2_init(void) {
+    if (init_audio_driver() != 0) return false;
+
+    audsrv_fmt_t fmt;
+
+    fmt.freq = 32000;
+    fmt.bits = 16;
+    fmt.channels = 2;
+
+    if (audsrv_set_format(&fmt)) {
+        printf("audio_ps2: unsupported sound format\n");
+        audsrv_quit();
+        return false;
+    }
+
+    return true;
+}
+
+static int audio_ps2_buffered(void) {
+    return audsrv_queued() / 4;
+}
+
+static int audio_ps2_get_desired_buffered(void) {
+    return 1100;
+}
+
+static void audio_ps2_play(const uint8_t *buf, size_t len) {
+    if (audio_ps2_buffered() < 6000)
+        audsrv_play_audio(buf, len);
+}
+
+static void audio_ps2_pause(const uint8_t *buf, size_t len) {
+    audsrv_stop_audio();
+}
+
+struct VidMode {
+    const char *name;
+    s16 mode;
+    s16 interlace;
+    s16 field;
+    int max_width;
+    int max_height;
+    int width;
+    int height;
+    int vck;
+    int iPassCount;
+    int x_off;
+    int y_off;
+};
+
+static const struct VidMode vid_modes[] = {
+    { "240p", GS_MODE_NTSC,      GS_NONINTERLACED, GS_FRAME,  652,  224,  320,  224, 2, 1, 0, 0 },
+#if !defined(VERSION_EU)
+    // NTSC
+    { "480i", GS_MODE_NTSC,      GS_INTERLACED,    GS_FIELD,  704,  480,  704,  452, 4, 1, 0, 0 },
+    { "480p", GS_MODE_DTV_480P,  GS_NONINTERLACED, GS_FRAME,  704,  480,  704,  452, 2, 1, 0, 0 },
+#else
+    // PAL
+    { "576i", GS_MODE_PAL,       GS_INTERLACED,    GS_FIELD,  704,  576,  704,  536, 4, 1, 0, 0 },
+    { "576p", GS_MODE_DTV_576P,  GS_NONINTERLACED, GS_FRAME,  704,  576,  704,  536, 2, 1, 0, 0 },
+#endif
+    // HDTV
+    { "720p", GS_MODE_DTV_720P,  GS_NONINTERLACED, GS_FRAME, 1280,  720, 1280,  720, 1, 2, 0, 0 },
+    {"1080i", GS_MODE_DTV_1080I, GS_INTERLACED,    GS_FRAME, 1920, 1080, 1920, 1080, 1, 2, 0, 0 },
+};
+
+GSGLOBAL *gs_global;
+
+static int vsync_sema_1st_id;
+static int vsync_sema_2nd_id;
+static int vsync_sema_id = -1;
+static int vsync_id = -1;
+
+static const struct VidMode *vid_mode;
+static bool use_hires = false;
+
+/* Copy of gsKit_sync_flip, but without the 'flip' */
+static void gsKit_sync(GSGLOBAL *gsGlobal)
+{
+    WaitSema(vsync_sema_1st_id);
+    WaitSema(vsync_sema_2nd_id);
+}
+
+/* Copy of gsKit_sync_flip, but without the 'sync' */
+static void gsKit_flip(GSGLOBAL *gsGlobal)
+{
+   if (!gsGlobal->FirstFrame)
+   {
+      if (gsGlobal->DoubleBuffering == GS_SETTING_ON)
+      {
+         GS_SET_DISPFB2( gsGlobal->ScreenBuffer[
+               gsGlobal->ActiveBuffer & 1] / 8192,
+               gsGlobal->Width / 64, gsGlobal->PSM, 0, 0 );
+
+         gsGlobal->ActiveBuffer ^= 1;
+      }
+
+   }
+
+   gsKit_setactive(gsGlobal);
+}
+
+/* PRIVATE METHODS */
+static int vsync_handler()
+{
+   iSignalSema(vsync_sema_id ? vsync_sema_2nd_id : vsync_sema_1st_id);
+   vsync_sema_id ^= 1;
+
+   ExitHandler();
+   return 0;
+}
+
+static void prepare_sema() {
+    ee_sema_t sema_1st;
+    sema_1st.init_count = 0;
+    sema_1st.max_count = 1;
+    sema_1st.option = 0;
+    vsync_sema_1st_id = CreateSema(&sema_1st);
+
+    ee_sema_t sema_2nd;
+    sema_2nd.init_count = 0;
+    sema_2nd.max_count = 1;
+    sema_2nd.option = 0;
+    vsync_sema_2nd_id = CreateSema(&sema_2nd);
+}
+
+static void gfx_ps2_init(const char *game_name, bool start_in_fullscreen) {
+    
+}
+
+static bool gfx_ps2_set_vid_mode(uint8_t vid_mode_idx) {
+    if (vid_mode_idx >= ARRAY_COUNT(vid_modes)) {
+        return false;
+    }
+
+    if (vid_mode != &vid_modes[vid_mode_idx]) {
+        vid_mode = &vid_modes[vid_mode_idx];
+        gfx_ps2_init(NULL, false);
+        return true;
+    }
+    return false;
+}
+
+static void gfx_ps2_set_fullscreen_changed_callback(void (*on_fullscreen_changed)(bool is_now_fullscreen)) {
+
+}
+
+static void gfx_ps2_set_fullscreen(bool enable) {
+
+}
+
+static void gfx_ps2_set_keyboard_callbacks(bool (*on_key_down)(int scancode), bool (*on_key_up)(int scancode), void (*on_all_keys_up)(void)) {
+
+}
+
+static void gfx_ps2_main_loop(void (*run_one_game_iter)(void)) {
+    run_one_game_iter();
+}
+
+static void gfx_ps2_get_dimensions(uint32_t *width, uint32_t *height) {
+    *width = gs_global->Width;
+    *height = gs_global->Height;
+    // the game doesn't need to know that we are 
+    // rendering at half height for 1080i
+    if (gs_global->Mode == GS_MODE_DTV_1080I) {
+        *height *= 2;
+    }
+}
+
+static void gfx_ps2_handle_events(void) {
+
+}
+
+static bool gfx_ps2_start_frame(void) {
+    return 1;
+}
+
+static void gfx_ps2_swap_buffers_begin(void) {
+    if (use_hires) {
+        return;
+    }
+    if (vsync_sema_id != -1) return;
+
+    prepare_sema();
+    vsync_sema_id = 0;
+    vsync_id = gsKit_add_vsync_handler(vsync_handler);
+}
+
+static double gfx_ps2_get_time(void) {
+    return 0.0;
+}
 
 
 // uint8_t platform_sdl_gamepad_map[] = {
@@ -177,12 +393,22 @@ void platform_pump_events(void) {
 	// }
 }
 
-double platform_now(void) {
-	// uint64_t perf_counter = SDL_GetPerformanceCounter();
-	// return (double)perf_counter / (double)perf_freq;
+static inline u32 get_cycle_count(void)
+{
+    u32 count;
+    asm volatile("mfc0 %0, $9" : "=r"(count));
+    return count;
+}
+
+double platform_now(void)
+{
+	// TODO: this might be AI nonsense
+    // return (double)get_cycle_count() / 147456000.0;
+    return 0;
 }
 
 bool platform_get_fullscreen(void) {
+    return true;
 	// return SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN;
 }
 
@@ -202,17 +428,18 @@ void platform_set_fullscreen(bool fullscreen) {
 	// }
 }
 
-void platform_audio_callback(void* userdata, uint8_t* stream, int len) {
+void platform_audio_callback(float* buffer, int num_frames, int num_channels) {
 	if (audio_callback) {
-		audio_callback((float *)stream, len/sizeof(float));
+		audio_callback(buffer, num_frames * num_channels);
 	}
 	else {
-		memset(stream, 0, len);
+		memset(buffer, 0, num_frames * sizeof(float));
 	}
 }
 
 void platform_set_audio_mix_cb(void (*cb)(float *buffer, uint32_t len)) {
 	audio_callback = cb;
+	// audsrv_stop_audio();
 	// SDL_PauseAudioDevice(audio_device, 0);
 }
 
@@ -228,29 +455,74 @@ uint8_t *platform_load_asset(const char *name, uint32_t *bytes_read) {
 }
 
 uint8_t *platform_load_userdata(const char *name, uint32_t *bytes_read) {
-	char *path = strcat(strcpy(temp_path, path_userdata), name);
-	if (!file_exists(path)) {
-		*bytes_read = 0;
-		return NULL;
-	}
-	return file_load(path, bytes_read);
+	// char *path = strcat(strcpy(temp_path, path_userdata), name);
+	// if (!file_exists(path)) {
+	// 	*bytes_read = 0;
+	// 	return NULL;
+	// }
+	// return file_load(path, bytes_read);
+    return NULL;
 }
 
 uint32_t platform_store_userdata(const char *name, void *bytes, int32_t len) {
-	char *path = strcat(strcpy(temp_path, path_userdata), name);
-	return file_store(path, bytes, len);
+	// char *path = strcat(strcpy(temp_path, path_userdata), name);
+	// return file_store(path, bytes, len);
 }
 
 	
 void platform_video_init(void) {
-	// #if defined(USE_GLES2)
-	// 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
-	// 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
-	// 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
-	// #endif
+	if (vid_mode == NULL) {
+        vid_mode = &vid_modes[4]; // Standard def 480i
+    } else {
+        if (use_hires) {
+            gsKit_hires_deinit_global(gs_global);
+        } else {
+            gsKit_deinit_global(gs_global);
+            if (vsync_id != -1) {
+                gsKit_remove_vsync_handler(vsync_id);
+            }
+            vsync_sema_id = -1;
+        }
+    }
+    use_hires = (vid_mode->mode == GS_MODE_DTV_720P || vid_mode->mode == GS_MODE_DTV_1080I);
 
-	// platform_gl = SDL_GL_CreateContext(window);
-	// SDL_GL_SetSwapInterval(1);
+    if (use_hires) {
+        gs_global = gsKit_hires_init_global();
+    } else {
+        gs_global = gsKit_init_global();
+    }
+
+    dmaKit_init(D_CTRL_RELE_OFF, D_CTRL_MFD_OFF, D_CTRL_STS_UNSPEC,
+                D_CTRL_STD_OFF, D_CTRL_RCYC_8, 1 << DMA_CHANNEL_GIF);
+
+    dmaKit_chan_init(DMA_CHANNEL_GIF);
+
+    gs_global->Mode = vid_mode->mode;
+    gs_global->Width = vid_mode->width;
+    gs_global->Height = vid_mode->height;
+    if (gs_global->Mode == GS_MODE_DTV_1080I) {
+        gs_global->Height /= 2;
+    }
+
+    gs_global->Interlace = vid_mode->interlace;
+    gs_global->Field = vid_mode->field;
+    gs_global->ZBuffering = GS_SETTING_ON;
+    gs_global->DoubleBuffering = GS_SETTING_ON;
+    gs_global->PrimAAEnable = GS_SETTING_OFF;
+    // this could be enabled for hires, but I don't like it
+    gs_global->Dithering = use_hires ? GS_SETTING_ON : GS_SETTING_OFF;
+    // hires runs out of VRAM if using more than 16bit color
+    gs_global->PSM = use_hires ? GS_PSM_CT16 : GS_PSM_CT24;
+    gs_global->PSMZ = GS_PSMZ_16; // 16-bit unsigned zbuffer
+
+    if (use_hires) {
+        gsKit_hires_init_screen(gs_global, vid_mode->iPassCount);
+    } else {
+        gsKit_init_screen(gs_global);
+    }
+    // hires sets the texture pointer to the wrong location. Ensure it's correct.
+    gs_global->TexturePointer = gs_global->CurrentPointer;
+    gsKit_TexManager_init(gs_global);
 }
 
 void platform_prepare_frame(void) {
@@ -262,15 +534,101 @@ void platform_video_cleanup(void) {
 }
 
 void platform_end_frame(void) {
-	// SDL_GL_SwapWindow(window);
+	if (use_hires) {
+        gsKit_hires_flip_ext(gs_global, GSFLIP_RATE_LIMIT_1);
+    } else {
+        gsKit_sync(gs_global);
+        gsKit_flip(gs_global);
+        gsKit_queue_exec(gs_global);
+    }
+    gsKit_TexManager_nextFrame(gs_global);
 }
 
 vec2i_t platform_screen_size(void) {
-	int width, height;
-	// SDL_GL_GetDrawableSize(window, &width, &height);
+	uint32_t width, height;
+	gfx_ps2_get_dimensions(&width, &height);
 	return vec2i(width, height);
 }
 
+void reset_IOP() {
+    SifInitRpc(0);
+    while (!SifIopReset(NULL, 0)) {} // Comment this line if you want to "debug" through ps2link
+    while (!SifIopSync()) {} 
+}
+
+static void prepare_IOP() {
+    reset_IOP();
+    SifInitRpc(0);
+    sbv_patch_enable_lmb();
+    sbv_patch_disable_prefix_check();
+}
+
+static void init_drivers() {
+    init_only_boot_ps2_filesystem_driver();
+    init_memcard_driver(true);
+    ps2_memcard_init();
+}
+
+static void deinit_drivers() {
+    deinit_memcard_driver(true);
+    deinit_only_boot_ps2_filesystem_driver();
+}
+
+static inline int16_t float_to_s16(float x) {
+    if (x > 1.0f) x = 1.0f;
+    if (x < -1.0f) x = -1.0f;
+    return (int16_t)(x * 32767.0f);
+}
+
+static inline void audio_frame(void) {
+    int num_samples =
+        audio_ps2_buffered() < audio_ps2_get_desired_buffered()
+        ? SAMPLES_HIGH
+        : SAMPLES_LOW;
+
+    static float  float_buf[SAMPLES_HIGH * 2];
+    static int16_t pcm_buf[SAMPLES_HIGH * 2];
+
+    // Fill float buffer via sokol callback
+    platform_audio_callback(float_buf, num_samples, 2);
+
+    // Convert float -> s16
+    for (u32 i = 0; i < num_samples * 2; i++) {
+        pcm_buf[i] = float_to_s16(float_buf[i]);
+    }
+
+    // Send PCM16 to SPU2
+    audio_ps2_play(
+        (const uint8_t*)pcm_buf,
+        num_samples * 2 * sizeof(int16_t)
+    );
+}
+
+
 int main(int argc, char *argv[]) {
-	return 0;
+	// static u64 pool[0x165000/8 / 4 * sizeof(void *)];
+    char path_data[200];
+    temp_path = path_data;
+
+#ifdef TARGET_PS2
+    prepare_IOP();
+    init_drivers();
+#endif
+
+	audio_ps2_init();
+	platform_video_init();
+	path_assets = "host:";
+
+    system_init();
+	while (!wants_to_exit) {
+		platform_pump_events();
+		platform_prepare_frame();
+		system_update();
+        // audio breaks it right now, oops
+        audio_frame();
+        gfx_ps2_swap_buffers_begin();
+		platform_end_frame();
+	}
+
+    deinit_drivers();
 }
