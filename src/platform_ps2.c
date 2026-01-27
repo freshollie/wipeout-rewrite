@@ -42,10 +42,11 @@ static char *temp_path = NULL;
 
 static bool audio_ps2_init(void) {
     if (init_audio_driver() != 0) return false;
+    audsrv_set_volume(MAX_VOLUME);
 
     audsrv_fmt_t fmt;
 
-    fmt.freq = 32000;
+    fmt.freq = 44100;
     fmt.bits = 16;
     fmt.channels = 2;
 
@@ -67,8 +68,10 @@ static int audio_ps2_get_desired_buffered(void) {
 }
 
 static void audio_ps2_play(const uint8_t *buf, size_t len) {
-    if (audio_ps2_buffered() < 6000)
+    if (audio_ps2_buffered() < 6000) {
+        audsrv_wait_audio(len);
         audsrv_play_audio(buf, len);
+    }
 }
 
 static void audio_ps2_pause(const uint8_t *buf, size_t len) {
@@ -269,6 +272,7 @@ void platform_exit(void) {
 }
 
 void platform_pump_events(void) {
+    // handle controller input
 	// SDL_Event ev;
 	// while (SDL_PollEvent(&ev)) {
 	// 	// Detect ALT+Enter press to toggle fullscreen
@@ -439,8 +443,7 @@ void platform_audio_callback(float* buffer, int num_frames, int num_channels) {
 
 void platform_set_audio_mix_cb(void (*cb)(float *buffer, uint32_t len)) {
 	audio_callback = cb;
-	// audsrv_stop_audio();
-	// SDL_PauseAudioDevice(audio_device, 0);
+	audsrv_stop_audio();
 }
 
 
@@ -581,15 +584,10 @@ static inline int16_t float_to_s16(float x) {
 }
 
 static inline void audio_frame(void) {
-    int num_samples =
-        audio_ps2_buffered() < audio_ps2_get_desired_buffered()
-        ? SAMPLES_HIGH
-        : SAMPLES_LOW;
+    int num_samples = 1100;
+    static float  float_buf[1100 * 2];
+    static int16_t pcm_buf[1100 * 2];
 
-    static float  float_buf[SAMPLES_HIGH * 2];
-    static int16_t pcm_buf[SAMPLES_HIGH * 2];
-
-    // Fill float buffer via sokol callback
     platform_audio_callback(float_buf, num_samples, 2);
 
     // Convert float -> s16
