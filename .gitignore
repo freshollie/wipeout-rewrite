@@ -9,3 +9,4 @@
 /save.dat
 .DS_STORE
 gamecontrollerdb.txt
+*.elf
