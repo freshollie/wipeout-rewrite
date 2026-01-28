@@ -475,7 +475,7 @@ static inline void viewport_transform_vertex(vertex_t *v) {
     v->pos.x = v->pos.x *  r_view.hw + r_view.cx;
     v->pos.y = v->pos.y * -r_view.hh + r_view.cy;
     v->pos.z = fclamp((1.0f - v->pos.z) * 65535.f + z_offset, 0.f, 65535.f);
-    v->pos.z = 0x800000;
+    // v->pos.z = 0x800000;
 }
 
 
@@ -1196,7 +1196,7 @@ void render_push_tris(tris_t tris, uint16_t texture_index) {
     // const struct LoadedVertex *v_arr[3] = {{tris[0].x, tris[0].y, tris[0].z, 0}, v2, v3};
     error_if(texture_index >= textures_len, "Invalid texture %d", texture_index);
 
-    gfx_ps2_select_texture(0, texture_index);
+    gfx_ps2_select_texture(0, RENDER_NO_TEXTURE);
     
 	struct Texture* t = cur_tex[0];
 
@@ -1207,26 +1207,69 @@ void render_push_tris(tris_t tris, uint16_t texture_index) {
     draw_set_clamp(t->clamp_s, t->clamp_t);
     gsKit_TexManager_bind(gs_global, &t->tex);
 
-    ColorQ c0 = (ColorQ) { { 0x80, 0x80, 0x80, 0x80, 1.f } };
-    ColorQ c1 = (ColorQ) { { 0x80, 0x80, 0x80, 0x80, 1.f } };
-    ColorQ c2 = (ColorQ) { { 0x80, 0x80, 0x80, 0x80, 1.f } };
 
-    vertex_t *v0, *v1, *v2;
+    vertex_t *v0 = &tris.vertices[0];
+    vertex_t *v1 = &tris.vertices[1];
+    vertex_t *v2 = &tris.vertices[2];
 
-    v0 = &tris.vertices[0]; viewport_transform_vertex(v0);
-    v1 = &tris.vertices[1]; viewport_transform_vertex(v1);
-    v2 = &tris.vertices[2]; viewport_transform_vertex(v2);
-    c0.rgba = *(u32*)&v0->color; c0.q = 1.0;
-    c1.rgba = *(u32*)&v1->color; c1.q = 1.0;
-    c2.rgba = *(u32*)&v2->color; c2.q = 1.0;
-    printf("coord %f %f %f %f %f\n", v0->pos.x, v0->pos.y, v0->pos.z, v0->uv.x, v0->uv.y);
-    gsKit_prim_triangle_goraud_texture_3d_st(
-        gs_global, &cur_tex[0]->tex,
-        v0->pos.x, v0->pos.y, v0->pos.z, v0->uv.x, v0->uv.y,
-        v1->pos.x, v1->pos.y, v1->pos.z, v1->uv.x, v1->uv.y,
-        v2->pos.x, v2->pos.y, v2->pos.z, v2->uv.x, v2->uv.y,
-        c0.word, c1.word, c2.word
+    gsKit_prim_triangle_goraud_texture_3d(
+        gs_global,
+        &t->tex,
+
+        // vertex 0
+        v0->pos.x, v0->pos.y, v0->pos.z,
+        v0->uv.x,  v0->uv.y,
+        GS_SETREG_RGBAQ(
+            v0->color.r,
+            v0->color.g,
+            v0->color.b,
+            v0->color.a,
+            0x00
+        ),
+
+        // vertex 1
+        v1->pos.x, v1->pos.y, v1->pos.z,
+        v1->uv.x,  v1->uv.y,
+        GS_SETREG_RGBAQ(
+            v1->color.r,
+            v1->color.g,
+            v1->color.b,
+            v1->color.a,
+            0x00
+        ),
+
+        // vertex 2
+        v2->pos.x, v2->pos.y, v2->pos.z,
+        v2->uv.x,  v2->uv.y,
+        GS_SETREG_RGBAQ(
+            v2->color.r,
+            v2->color.g,
+            v2->color.b,
+            v2->color.a,
+            0x00
+        )
     );
+
+    // ColorQ c0 = (ColorQ) { { 0x80, 0x80, 0x80, 0x80, 1.f } };
+    // ColorQ c1 = (ColorQ) { { 0x80, 0x80, 0x80, 0x80, 1.f } };
+    // ColorQ c2 = (ColorQ) { { 0x80, 0x80, 0x80, 0x80, 1.f } };
+
+    // vertex_t *v0, *v1, *v2;
+
+    // v0 = &tris.vertices[0]; viewport_transform_vertex(v0);
+    // v1 = &tris.vertices[1]; viewport_transform_vertex(v1);
+    // v2 = &tris.vertices[2]; viewport_transform_vertex(v2);
+    // c0.rgba = *(u32*)&v0->color; c0.q = 1.0;
+    // c1.rgba = *(u32*)&v1->color; c1.q = 1.0;
+    // c2.rgba = *(u32*)&v2->color; c2.q = 1.0;
+    // printf("coord %f %f %f %f %f\n", v0->pos.x, v0->pos.y, v0->pos.z, v0->uv.x, v0->uv.y);
+    // gsKit_prim_triangle_goraud_texture_3d_st(
+    //     gs_global, &cur_tex[0]->tex,
+    //     v0->pos.x, v0->pos.y, v0->pos.z, v0->uv.x, v0->uv.y,
+    //     v1->pos.x, v1->pos.y, v1->pos.z, v1->uv.x, v1->uv.y,
+    //     v2->pos.x, v2->pos.y, v2->pos.z, v2->uv.x, v2->uv.y,
+    //     c0.word, c1.word, c2.word
+    // );
 
 //     bool used_textures[2], use_fog = false, use_alpha = false;
 // 	const bool z_is_from_0_to_1 = true;
