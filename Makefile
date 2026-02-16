@@ -1,12 +1,13 @@
 CC ?= gcc
 EMCC ?= emcc
 UNAME_S := $(shell uname -s)
-RENDERER ?= GL
+RENDERER ?= SOFTWARE
 USE_GLX ?= false
 DEBUG ?= false
 USER_CFLAGS ?=
 
 TARGET_PS2 ?= 1
+GAME_CODE ?= SLUS_065.65
 
 L_FLAGS ?= -lm
 C_FLAGS ?= -Isrc/libs/ -std=gnu99 -Wall -Wno-unused-variable $(USER_CFLAGS)
@@ -34,7 +35,7 @@ endif
 
 # Renderer ---------------------------------------------------------------------
 ifeq ($(TARGET_PS2), 1)
-	RENDERER_SRC = src/render_ps2.c
+	RENDERER_SRC = src/render_ps2_software.c
 else ifeq ($(RENDERER), GL)
 	RENDERER_SRC = src/render_gl.c
 	C_FLAGS := $(C_FLAGS) -DRENDERER_GL
@@ -54,7 +55,7 @@ endif
 
 # PS2 ------------------------------------------------------------------------
 ifeq ($(TARGET_PS2),1)
-	C_FLAGS  := $(C_FLAGS) -fno-tree-builtin-call-dce -fno-strict-aliasing -DTARGET_PS2 -D_EE -G0 -I$(PS2SDK)/ee/include -I$(PS2SDK)/common/include -I$(PS2SDK)/ports/include -I$(PS2DEV)/gsKit/include
+	C_FLAGS  := $(C_FLAGS) -mhard-float -ffast-math -fno-tree-builtin-call-dce -fno-strict-aliasing -DTARGET_PS2 -D_EE -G0 -I$(PS2SDK)/ee/include -I$(PS2SDK)/common/include -I$(PS2SDK)/ports/include -I$(PS2DEV)/gsKit/include
 	L_FLAGS_PS2 := -Wl,-zmax-page-size=128 -T$(PS2SDK)/ee/startup/linkfile -L$(PS2DEV)/gsKit/lib -L$(PS2SDK)/ee/lib -L$(PS2SDK)/ports/lib -lgskit -ldmakit -lps2_drivers -lmc -lpatches
 # macOS ------------------------------------------------------------------------
 else ifeq ($(UNAME_S), Darwin)
@@ -221,6 +222,14 @@ $(BUILD_DIR_WASM)/%.o: %.c
 
 -include $(COMMON_DEPS_WASM)
 
+
+ps2_iso: $(TARGET) ps2
+	@echo Creating iso from $(TARGET)
+	@rm -rf $(BUILD_DIR)/iso
+	@cp -r ps2/ntsc $(BUILD_DIR)/iso
+	@cp -r wipeout $(BUILD_DIR)/iso/wipeout
+	@cp $< $(BUILD_DIR)/iso/$(GAME_CODE)
+	@mkisofs -o $(BUILD_DIR)/wipegame.iso $(BUILD_DIR)/iso/
 
 
 

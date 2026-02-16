@@ -11,7 +11,7 @@ static bool wants_to_exit = false;
 static SDL_Window *window;
 static SDL_AudioDeviceID audio_device;
 static SDL_GameController *gamepad;
-static void (*audio_callback)(float *buffer, uint32_t len) = NULL;
+static void (*audio_callback)(int16_t *buffer, uint32_t len) = NULL;
 static char *path_assets = "";
 static char *path_userdata = "";
 static char *temp_path = NULL;
@@ -213,16 +213,27 @@ void platform_set_fullscreen(bool fullscreen) {
 	}
 }
 
+static inline int16_t float_to_s16(float x) {
+    if (x > 1.0f) x = 1.0f;
+    if (x < -1.0f) x = -1.0f;
+    return (int16_t)(x * 32767.0f);
+}
+
 void platform_audio_callback(void* userdata, uint8_t* stream, int len) {
+	int16_t buf[10000];
 	if (audio_callback) {
-		audio_callback((float *)stream, len/sizeof(float));
+		audio_callback(buf, len/sizeof(float));
+
+		// for (int i = 0; i < len/sizeof(float); i++) {
+		// 	((float*)stream)[i] = buf[i] / 32767.0f;
+		// }
 	}
 	else {
 		memset(stream, 0, len);
 	}
 }
 
-void platform_set_audio_mix_cb(void (*cb)(float *buffer, uint32_t len)) {
+void platform_set_audio_mix_cb(void (*cb)(int16_t *buffer, uint32_t len)) {
 	audio_callback = cb;
 	SDL_PauseAudioDevice(audio_device, 0);
 }

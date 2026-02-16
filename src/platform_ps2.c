@@ -1,5 +1,6 @@
 // #include "SDL.h"
 #include <stdlib.h>
+#include <ctype.h>
 #include <tamtypes.h>
 #include <kernel.h>
 #include <iopcontrol.h>
@@ -32,7 +33,7 @@ static bool wants_to_exit = false;
 // static SDL_Window *window;
 // static SDL_AudioDeviceID audio_device;
 // static SDL_GameController *gamepad;
-static void (*audio_callback)(float *buffer, uint32_t len) = NULL;
+static void (*audio_callback)(int16_t *buffer, uint32_t len) = NULL;
 static char *path_assets = "";
 static char *path_userdata = "";
 static char *temp_path = NULL;
@@ -69,7 +70,6 @@ static int audio_ps2_get_desired_buffered(void) {
 
 static void audio_ps2_play(const uint8_t *buf, size_t len) {
     if (audio_ps2_buffered() < 6000) {
-        audsrv_wait_audio(len);
         audsrv_play_audio(buf, len);
     }
 }
@@ -271,7 +271,137 @@ void platform_exit(void) {
 	wants_to_exit = true;
 }
 
+#include <ps2_joystick_driver.h>
+#include <libpad.h>
+#include <libmtap.h>
+
+
+#define DEADZONE    24
+#define DEADZONE_SQ (DEADZONE * DEADZONE)
+
+static u8 padbuf[256] __attribute__((aligned(64)));
+static int init_done = 0;
+
+static int joy_port = -1;
+static int joy_slot = -1;
+static int joy_id = -1;
+static struct padButtonStatus joy_buttons __attribute__((aligned(64)));
+
+static inline int wait_pad(int tries) {
+    int state = padGetState(joy_port, joy_slot);
+    if (state == PAD_STATE_DISCONN) {
+        joy_id = -1;
+        return -1;
+    }
+
+    while ((state != PAD_STATE_STABLE) && (state != PAD_STATE_FINDCTP1)) {
+        state = padGetState(joy_port, joy_slot);
+        if (--tries == 0) break;
+    }
+
+    return 0;
+}
+
+static int detect_pad(void) {
+    int id = padInfoMode(joy_port, joy_slot, PAD_MODECURID, 0);
+    if (id <= 0) return -1;
+
+    const int ext = padInfoMode(joy_port, joy_slot, PAD_MODECUREXID, 0);
+    if (ext) id = ext;
+
+    printf("controller_ps2: detected pad type %d\n", id);
+
+    if (id == PAD_TYPE_DIGITAL || id == PAD_TYPE_DUALSHOCK)
+        padSetMainMode(joy_port, joy_slot, PAD_MMODE_DUALSHOCK, PAD_MMODE_LOCK);
+
+    return id;
+}
+
+static void controller_ps2_init(void) {
+    int ret = -1;
+    
+    // MEMORY CARD already initied SIO2MAN
+    ret = init_joystick_driver(false);
+
+    if (ret != 0) {
+        printf("controller_ps2: failed to init joystick driver: %d\n", ret);
+        return;
+    }
+
+    const int numports = padGetPortMax();
+    // Find the first device connected
+    for (int port = 0; port < numports && joy_port < 0; ++port) {
+        if (joy_port == -1 && joy_slot == -1 && mtapPortOpen(port)) {
+            const int maxslots = padGetSlotMax(port);
+            for (int slot = 0; slot < maxslots; ++slot) {
+                if (joy_port == -1 && joy_slot == -1 && padPortOpen(port, slot, padbuf) >= 0) {
+                    joy_port = port;
+                    joy_slot = slot;
+                    printf("controller_ps2: using pad (%d, %d)\n", port, slot);
+                    break;
+                }
+            }
+        }
+    }
+
+    if (joy_slot < 0 || joy_port < 0) {
+        printf("controller_ps2: could not open a single port\n");
+        return;
+    }
+
+    init_done = 1;
+}
+
+// static void controller_ps2_read(OSContPad *pad) {
+//     if (!init_done) return;
+
+//     if (wait_pad(10) < 0)
+//         return; // nothing received
+
+//     if (joy_id < 0) {
+//         // pad not detected yet, do it
+//         joy_id = detect_pad();
+//         if (joy_id < 0) return; // still nothing
+//         if (wait_pad(10) < 0) return;
+//     }
+
+//     if (padRead(joy_port, joy_slot, &joy_buttons)) {
+//         const u32 btns = 0xffff ^ joy_buttons.btns;
+
+//         for (int i = 0; i < num_joy_binds; ++i)
+//             if (btns & joy_binds[i].sce_btn)
+//                 pad->button |= joy_binds[i].n64_btn;
+
+//         const int lstick_x = (int)joy_buttons.ljoy_h - 128;
+//         const int lstick_y = (int)joy_buttons.ljoy_v - 128;
+//         const int rstick_x = (int)joy_buttons.rjoy_h - 128;
+//         const int rstick_y = (int)joy_buttons.rjoy_v - 128;
+
+//         if (rstick_x < -64)     pad->button |= L_CBUTTONS;
+//         else if (rstick_x > 63) pad->button |= R_CBUTTONS;
+//         if (rstick_y < -64)     pad->button |= U_CBUTTONS;
+//         else if (rstick_y > 63) pad->button |= D_CBUTTONS;
+
+//         const uint32_t lstick_mag = (u32)(lstick_x * lstick_x) + (u32)(lstick_y * lstick_y);
+//         if (lstick_mag > (u32)DEADZONE_SQ) {
+//             pad->stick_x = roundf(((float) lstick_x) / 128.f * 80.f);
+//             pad->stick_y = roundf(((float)-lstick_y) / 128.f * 80.f);
+//         }
+//     }
+// }
+
+int frames = 0;
+
 void platform_pump_events(void) {
+    frames++;
+    if (frames < 10) {
+        input_set_button_state(INPUT_KEY_RETURN, 1);
+        input_set_button_state(INPUT_KEY_RETURN, 0);
+    }
+
+    if (frames > 10) {
+         input_set_button_state(INPUT_GAMEPAD_A, 1);
+    }
     // handle controller input
 	// SDL_Event ev;
 	// while (SDL_PollEvent(&ev)) {
@@ -404,11 +534,12 @@ static inline u32 get_cycle_count(void)
     return count;
 }
 
+double count = 0;
 double platform_now(void)
 {
 	// TODO: this might be AI nonsense
     // return (double)get_cycle_count() / 147456000.0;
-    return 0;
+    return count += 0.016666666666666666;
 }
 
 bool platform_get_fullscreen(void) {
@@ -432,7 +563,7 @@ void platform_set_fullscreen(bool fullscreen) {
 	// }
 }
 
-void platform_audio_callback(float* buffer, int num_frames, int num_channels) {
+void platform_audio_callback(int16_t* buffer, int num_frames, int num_channels) {
 	if (audio_callback) {
 		audio_callback(buffer, num_frames * num_channels);
 	}
@@ -441,19 +572,33 @@ void platform_audio_callback(float* buffer, int num_frames, int num_channels) {
 	}
 }
 
-void platform_set_audio_mix_cb(void (*cb)(float *buffer, uint32_t len)) {
+void platform_set_audio_mix_cb(void (*cb)(int16_t *buffer, uint32_t len)) {
 	audio_callback = cb;
 	audsrv_stop_audio();
 }
 
+void upper(char *s)
+{
+    while(*s) {
+        *s++ = toupper((unsigned char)*s);
+    }
+}
 
 FILE *platform_open_asset(const char *name, const char *mode) {
+    upper(name);
 	char *path = strcat(strcpy(temp_path, path_assets), name);
+    // printf("Before: %s\n", path);
+    // fix_slashes(path);
+    // printf("After: %s\n", path);
 	return fopen(path, mode);
 }
 
 uint8_t *platform_load_asset(const char *name, uint32_t *bytes_read) {
+    upper(name);
 	char *path = strcat(strcpy(temp_path, path_assets), name);
+    // printf("Before: %s\n", path);
+    // fix_slashes(path);
+    // printf("Open: %s\n", path);
 	return file_load(path, bytes_read);
 }
 
@@ -475,7 +620,7 @@ uint32_t platform_store_userdata(const char *name, void *bytes, int32_t len) {
 	
 void platform_video_init(void) {
 	if (vid_mode == NULL) {
-        vid_mode = &vid_modes[4]; // Standard def 480i
+        vid_mode = &vid_modes[1]; // Standard def 480i
     } else {
         if (use_hires) {
             gsKit_hires_deinit_global(gs_global);
@@ -540,8 +685,8 @@ void platform_end_frame(void) {
 	if (use_hires) {
         gsKit_hires_flip_ext(gs_global, GSFLIP_RATE_LIMIT_1);
     } else {
-        gsKit_sync(gs_global);
-        gsKit_flip(gs_global);
+        // gsKit_flip(gs_global);
+        gsKit_sync_flip(gs_global);
         gsKit_queue_exec(gs_global);
     }
     gsKit_TexManager_nextFrame(gs_global);
@@ -577,23 +722,12 @@ static void deinit_drivers() {
     deinit_only_boot_ps2_filesystem_driver();
 }
 
-static inline int16_t float_to_s16(float x) {
-    if (x > 1.0f) x = 1.0f;
-    if (x < -1.0f) x = -1.0f;
-    return (int16_t)(x * 32767.0f);
-}
-
 static inline void audio_frame(void) {
-    int num_samples = 1100;
-    static float  float_buf[1100 * 2];
-    static int16_t pcm_buf[1100 * 2];
+    static float float_buf[735 * 2];
+    static int16_t pcm_buf[735 * 2];
+    int num_samples = 735;
 
-    platform_audio_callback(float_buf, num_samples, 2);
-
-    // Convert float -> s16
-    for (u32 i = 0; i < num_samples * 2; i++) {
-        pcm_buf[i] = float_to_s16(float_buf[i]);
-    }
+    platform_audio_callback(pcm_buf, num_samples, 2);
 
     // Send PCM16 to SPU2
     audio_ps2_play(
@@ -613,9 +747,14 @@ int main(int argc, char *argv[]) {
     init_drivers();
 #endif
 
+
+    // printf("WTf?\n");
 	audio_ps2_init();
 	platform_video_init();
-	path_assets = "host:";
+    controller_ps2_init();
+	path_assets = "cdrom:/";
+    // printf("WTf?\n");
+    // while(true) {};
 
     system_init();
 	while (!wants_to_exit) {
@@ -623,7 +762,7 @@ int main(int argc, char *argv[]) {
 		platform_prepare_frame();
 		system_update();
         // audio breaks it right now, oops
-        audio_frame();
+        // audio_frame();
         gfx_ps2_swap_buffers_begin();
 		platform_end_frame();
 	}

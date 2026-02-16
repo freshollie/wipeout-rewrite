@@ -48,7 +48,7 @@ static sfx_data_t *sources;
 static uint32_t num_sources;
 static sfx_t *nodes;
 static music_decoder_t *music;
-static void (*external_mix_cb)(float *, uint32_t len) = NULL;
+static void (*external_mix_cb)(int16_t *, uint32_t len) = NULL;
 
 void sfx_load(void) {
 	// Init decode buffer for music
@@ -307,11 +307,11 @@ void sfx_music_mode(sfx_music_mode_t mode) {
 
 // Mixing
 
-void sfx_set_external_mix_cb(void (*cb)(float *, uint32_t len)) {
+void sfx_set_external_mix_cb(void (*cb)(int16_t *, uint32_t len)) {
 	external_mix_cb = cb;
 }
 
-void sfx_stero_mix(float *buffer, uint32_t len) {
+void sfx_stero_mix(int16_t *buffer, uint32_t len) {
 	if (external_mix_cb) {
 		external_mix_cb(buffer, len);
 		return;
@@ -333,10 +333,10 @@ void sfx_stero_mix(float *buffer, uint32_t len) {
 	uint32_t music_src_index = music->sample_data_pos * music->qoa.channels;
 
 	for (int i = 0; i < len; i += 2) {
-		float left = 0;
-		float right = 0;
+		int16_t left = 0;
+		int16_t right = 0;
 
-		// Fill buffer with all active nodes
+		// // Fill buffer with all active nodes
 		for (int n = 0; n < active_nodes_len; n++) {
 			sfx_t *sfx = active_nodes[n];
 			if (flags_not(sfx->flags, SFX_PLAY)) {
@@ -347,14 +347,14 @@ void sfx_stero_mix(float *buffer, uint32_t len) {
 			sfx->current_pan = sfx->current_pan * 0.999 + sfx->pan * 0.001;
 
 			sfx_data_t *source = &sources[sfx->source];
-			float sample = (float)source->samples[(int)sfx->position] / 32768.0;
+			int16_t sample = source->samples[(int)sfx->position];
 			left += sample * sfx->current_volume * clamp(1.0 - sfx->current_pan, 0, 1);
 			right += sample * sfx->current_volume * clamp(1.0 + sfx->current_pan, 0, 1);
 
 			sfx->position += sfx->pitch;
 			if (sfx->position >= source->len) {
 				if (flags_is(sfx->flags, SFX_LOOP)) {
-					sfx->position = fmod(sfx->position, source->len);
+					sfx->position -= source->len;
 				}
 				else {
 					flags_rm(sfx->flags, SFX_PLAY);
@@ -382,8 +382,8 @@ void sfx_stero_mix(float *buffer, uint32_t len) {
 				}
 				music_src_index = 0;
 			}
-			left += (music->sample_data[music_src_index++] / 32768.0) * save.music_volume;
-			right += (music->sample_data[music_src_index++] / 32768.0) * save.music_volume;
+			left += (music->sample_data[music_src_index++]) * save.music_volume;
+			right += (music->sample_data[music_src_index++]) * save.music_volume;
 			music->sample_data_pos++;
 		}
 
