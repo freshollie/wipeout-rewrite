@@ -100,6 +100,15 @@ uint32_t file_store(const char *path, void *bytes, int32_t len);
 	}
 
 
+
+extern float gSineTable[];
+extern float gCosineTable[];
+
+#define sins(x) gSineTable[(uint16_t) (x) >> 4]
+#define coss(x) gCosineTable[(uint16_t) (x) >> 4]
+
+float atan2f(float a, float b);
+
 static inline uint8_t get_u8(uint8_t *bytes, uint32_t *p) {
 	return bytes[(*p)++];
 }

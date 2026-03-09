@@ -5,6 +5,8 @@
 #include "utils.h"
 #include "mem.h"
 
+#include "trig_tables.inc.c"
+
 char temp_path[64];
 char *get_path(const char *dir, const char *file) {
 	strcpy(temp_path, dir);
@@ -65,4 +67,66 @@ float rand_float(float min, float max) {
 
 int32_t rand_int(int32_t min, int32_t max) {
 	return min + rand() % (max - min);
+}
+
+
+/**
+ * Helper function for atan2s. Does a look up of the arctangent of y/x assuming
+ * the resulting angle is in range [0, 0x2000] (1/8 of a circle).
+ */
+static uint16_t atan2_lookup(float y, float x) {
+    uint16_t ret;
+
+    if (x == 0) {
+        ret = gArctanTable[0];
+    } else {
+        ret = gArctanTable[(int32_t)(y / x * 1024 + 0.5f)];
+    }
+    return ret;
+}
+
+/**
+ * Compute the angle from (0, 0) to (x, y) as a s16. Given that terrain is in
+ * the xz-plane, this is commonly called with (z, x) to get a yaw angle.
+ */
+int16_t atan2s(float y, float x) {
+    uint16_t ret;
+
+    if (x >= 0) {
+        if (y >= 0) {
+            if (y >= x) {
+                ret = atan2f(x, y);
+            } else {
+                ret = 0x4000 - atan2f(y, x);
+            }
+        } else {
+            y = -y;
+            if (y < x) {
+                ret = 0x4000 + atan2f(y, x);
+            } else {
+                ret = 0x8000 - atan2f(x, y);
+            }
+        }
+    } else {
+        x = -x;
+        if (y < 0) {
+            y = -y;
+            if (y >= x) {
+                ret = 0x8000 + atan2f(x, y);
+            } else {
+                ret = 0xC000 - atan2f(y, x);
+            }
+        } else {
+            if (y < x) {
+                ret = 0xC000 + atan2f(y, x);
+            } else {
+                ret = -atan2f(x, y);
+            }
+        }
+    }
+    return ret;
+}
+
+float atan2f(float y, float x) {
+    return (float) atan2s(y, x) * M_PI / 0x8000;
 }

@@ -261,9 +261,9 @@ void weapon_follow_target(weapon_t *self) {
 	self->angle = vec3_add(self->angle, vec3_mulf(angular_velocity, 30 * system_tick() * 0.25));
 	self->angle = vec3_wrap_angle(self->angle);
 
-	self->acceleration.x = -sinf(self->angle.y) * cosf(self->angle.x) * 256;
-	self->acceleration.y = -sinf(self->angle.x) * 256;
-	self->acceleration.z = cosf(self->angle.y) * cosf(self->angle.x) * 256;
+	self->acceleration.x = -sins(self->angle.y) * coss(self->angle.x) * 256;
+	self->acceleration.y = -sins(self->angle.x) * 256;
+	self->acceleration.z = coss(self->angle.y) * coss(self->angle.x) * 256;
 }
 
 ship_t *weapon_collides_with_ship(weapon_t *self) {
@@ -350,7 +350,7 @@ void weapon_update_mine_wait_for_release(weapon_t *self) {
 void weapon_update_mine_lights(weapon_t *self, int index) {
 	Prm prm = {.primitive = self->model->primitives};
 
-	uint8_t r = sinf(system_cycle_time() * M_PI * 2 + index * 0.66) * 128 + 128;
+	uint8_t r = sins(system_cycle_time() * M_PI * 2 + index * 0.66) * 128 + 128;
 	for (int i = 0; i < 8; i++) {
 		switch (prm.primitive->type) {
 		case PRM_TYPE_GT3:
@@ -582,9 +582,9 @@ void weapon_update_shield(weapon_t *self) {
 		case PRM_TYPE_G3 :
 			coords = poly.g3->coords;
 
-			col0 = sinf(color_timer * coords[0]) * 127 + 128;
-			col1 = sinf(color_timer * coords[1]) * 127 + 128;
-			col2 = sinf(color_timer * coords[2]) * 127 + 128;
+			col0 = sins(color_timer * coords[0]) * 127 + 128;
+			col1 = sins(color_timer * coords[1]) * 127 + 128;
+			col2 = sins(color_timer * coords[2]) * 127 + 128;
 
 			poly.g3->color[0].r = col0;
 			poly.g3->color[0].g = col0;
@@ -606,10 +606,10 @@ void weapon_update_shield(weapon_t *self) {
 		case PRM_TYPE_G4 :
 			coords = poly.g4->coords;
 
-			col0 = sinf(color_timer * coords[0]) * 127 + 128;
-			col1 = sinf(color_timer * coords[1]) * 127 + 128;
-			col2 = sinf(color_timer * coords[2]) * 127 + 128;
-			col3 = sinf(color_timer * coords[3]) * 127 + 128;
+			col0 = sins(color_timer * coords[0]) * 127 + 128;
+			col1 = sins(color_timer * coords[1]) * 127 + 128;
+			col2 = sins(color_timer * coords[2]) * 127 + 128;
+			col3 = sins(color_timer * coords[3]) * 127 + 128;
 
 			poly.g4->color[0].r = col0;
 			poly.g4->color[0].g = col0;

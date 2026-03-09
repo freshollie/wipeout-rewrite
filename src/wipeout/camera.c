@@ -26,10 +26,10 @@ void camera_init(camera_t *camera, section_t *section) {
 }
 
 vec3_t camera_forward(camera_t *camera) {
-	float sx = sinf(camera->angle.x);
-	float cx = cosf(camera->angle.x);
-	float sy = sinf(camera->angle.y);
-	float cy = cosf(camera->angle.y);
+	float sx = sins(camera->angle.x);
+	float cx = coss(camera->angle.x);
+	float sy = sins(camera->angle.y);
+	float cy = coss(camera->angle.y);
 	return vec3(-(sy * cx), -sx, (cy * cx));
 }
 
@@ -70,9 +70,9 @@ void camera_update_race_intro(camera_t *camera, ship_t *ship, droid_t *droid) {
 	// Set to final position
 	vec3_t pos = vec3_sub(ship->position, vec3_mulf(ship->dir_forward, 0.25 * 4096));
 
-	pos.x += sinf(( (ship->update_timer - UPDATE_TIME_RACE_VIEW) * 30 * 3.0 * M_PI * 2) / 4096.0) * 4096;
+	pos.x += sins(( (ship->update_timer - UPDATE_TIME_RACE_VIEW) * 30 * 3.0 * M_PI * 2) / 4096.0) * 4096;
 	pos.y -= (2 *  (ship->update_timer - UPDATE_TIME_RACE_VIEW) * 30) + 200;
-	pos.z += sinf(( (ship->update_timer - UPDATE_TIME_RACE_VIEW) * 30 * 3.0 * M_PI * 2) / 4096.0) * 4096;
+	pos.z += sins(( (ship->update_timer - UPDATE_TIME_RACE_VIEW) * 30 * 3.0 * M_PI * 2) / 4096.0) * 4096;
 
 	if (!camera->has_initial_section) {
 		camera->section = ship->section;
@@ -104,13 +104,13 @@ void camera_update_attract_circle(camera_t *camera, ship_t *ship, droid_t *droid
 	// differently.
 	camera->section = ship->section;
 
-	camera->position.x = ship->position.x + sinf(ship->angle.y) * 512;
+	camera->position.x = ship->position.x + sins(ship->angle.y) * 512;
 	camera->position.y = ship->position.y + ((ship->angle.x * 512 / (M_PI * 2)) - 200);
-	camera->position.z = ship->position.z - cosf(ship->angle.y) * 512;
+	camera->position.z = ship->position.z - coss(ship->angle.y) * 512;
 
-	camera->position.x += sinf(camera->update_timer * 0.25) * 512;
+	camera->position.x += sins(camera->update_timer * 0.25) * 512;
 	camera->position.y -= 400;
-	camera->position.z += cosf(camera->update_timer * 0.25) * 512;
+	camera->position.z += coss(camera->update_timer * 0.25) * 512;
 	camera->position = vec3_sub(camera->position, vec3_mulf(ship->dir_up, 256));
 
 	vec3_t target = vec3_sub(ship->position, camera->position);

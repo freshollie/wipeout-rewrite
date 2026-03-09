@@ -752,7 +752,7 @@ int main(int argc, char *argv[]) {
 	audio_ps2_init();
 	platform_video_init();
     controller_ps2_init();
-	path_assets = "cdrom:/";
+	path_assets = "host:";
     // printf("WTf?\n");
     // while(true) {};
 
