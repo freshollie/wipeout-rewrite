@@ -265,7 +265,7 @@ void ship_init(ship_t *self, section_t *section, int pilot, int inv_start_rank) 
 
 	section_t *next = section->next;
 	vec3_t direction = vec3_sub(next->center, section->center);
-	self->angle.y = -atan2(direction.x, direction.z);
+	self->angle.y = -atan2f(direction.x, direction.z);
 }
 
 void ship_init_exhaust_plume(ship_t *self) {
@@ -448,12 +448,12 @@ void ship_draw_shadow(ship_t *self) {
 void ship_update(ship_t *self) {
 
 	// Set Unit vectors of this ship
-	float sx = sin(self->angle.x);
-	float cx = cos(self->angle.x);
-	float sy = sin(self->angle.y);
-	float cy = cos(self->angle.y);
-	float sz = sin(self->angle.z);
-	float cz = cos(self->angle.z);
+	float sx = sinf(self->angle.x);
+	float cx = cosf(self->angle.x);
+	float sy = sinf(self->angle.y);
+	float cy = cosf(self->angle.y);
+	float sz = sinf(self->angle.z);
+	float cz = cosf(self->angle.z);
 
 	self->dir_forward.x = -(sy * cx);
 	self->dir_forward.y = - sx;

@@ -114,7 +114,7 @@ void ship_player_update_intro_await_go(ship_t *self) {
 
 void ship_player_update_intro_general(ship_t *self) {
 	self->update_timer -= system_tick();
-	self->position.y = self->temp_target.y + sin(self->update_timer * 80.0 * 30.0 * M_PI * 2.0 / 4096.0) * 32;
+	self->position.y = self->temp_target.y + sinf(self->update_timer * 80.0 * 30.0 * M_PI * 2.0 / 4096.0) * 32;
 
 	// Thrust
 	if (input_state(A_THRUST)) {
@@ -487,7 +487,7 @@ void ship_player_update_rescue(ship_t *self) {
 		self->velocity = vec3_sub(self->temp_target, self->position);
 		vec3_t target_dir = vec3_sub(next->center, self->section->center);
 
-		self->angular_velocity.y = wrap_angle(-atan2(target_dir.x, target_dir.z) - self->angle.y) * 0.015625 * 30; // >> 6
+		self->angular_velocity.y = wrap_angle(-atan2f(target_dir.x, target_dir.z) - self->angle.y) * 0.015625 * 30; // >> 6
 		self->angle.y = wrap_angle(self->angle.y + self->angular_velocity.y * system_tick());
 	}
 

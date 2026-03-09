@@ -263,7 +263,7 @@ static const char * const SHADER_POST_FS_CRT = SHADER_SOURCE(
 	void main(){
 		vec2 uv = curve(gl_FragCoord.xy / screen_size);
 		vec3 color;
-		float x =  sin(0.3*time+uv.y*21.0)*sin(0.7*time+uv.y*29.0)*sin(0.3+0.33*time+uv.y*31.0)*0.0017;
+		float x =  sinf(0.3*time+uv.y*21.0)*sinf(0.7*time+uv.y*29.0)*sinf(0.3+0.33*time+uv.y*31.0)*0.0017;
 
 		color.r = texture2D(texture, vec2(x+uv.x+0.001,uv.y+0.001)).x+0.05;
 		color.g = texture2D(texture, vec2(x+uv.x+0.000,uv.y-0.002)).y+0.05;
@@ -280,12 +280,12 @@ static const char * const SHADER_POST_FS_CRT = SHADER_SOURCE(
 		color *= vec3(0.95,1.05,0.95);
 		color *= 2.8;
 
-		float scanlines = clamp( 0.35+0.35*sin(3.5*time+uv.y*screen_size.y*1.5), 0.0, 1.0);
+		float scanlines = clamp( 0.35+0.35*sinf(3.5*time+uv.y*screen_size.y*1.5), 0.0, 1.0);
 		
 		float s = pow(scanlines,1.7);
 		color = color * vec3(0.4+0.7*s);
 
-		color *= 1.0+0.01*sin(110.0*time);
+		color *= 1.0+0.01*sinf(110.0*time);
 		if (uv.x < 0.0 || uv.x > 1.0)
 			color *= 0.0;
 		if (uv.y < 0.0 || uv.y > 1.0)

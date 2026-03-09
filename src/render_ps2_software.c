@@ -248,7 +248,7 @@ void render_set_screen_size(vec2i_t size) {
 
 	float aspect = (float)size.x / (float)size.y;
 	float fov = (73.75 / 180.0) * 3.14159265358;
-	float f = 1.0 / tan(fov / 2);
+	float f = 1.0 / tanf(fov / 2);
 	float nf = 1.0 / (NEAR_PLANE - FAR_PLANE);
 	projection_mat = mat4(
 		f / aspect, 0, 0, 0,
@@ -533,10 +533,6 @@ static void gsKit_prim_triangle_goraud_texture_3d_st(
 
 VECTOR b;
 
-void dummy(VECTOR* vert) {
-	// g = vert;
-	printf("%f\n", vert[0][0]);
-}
 
 void render_push_tris(tris_t tris, uint16_t texture_index) {
 	// return;

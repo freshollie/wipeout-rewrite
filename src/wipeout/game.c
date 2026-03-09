@@ -654,7 +654,7 @@ void game_update(void) {
 	double now = platform_now();
 	g.frame_time = now - frame_start_time;
 	if (g.frame_time > 0) {
-		g.frame_rate = ((double)g.frame_rate * 0.95) + (1.0/g.frame_time) * 0.05;
+		g.frame_rate = (g.frame_rate * 0.95) + (1.0/g.frame_time) * 0.05;
 	}
 }
 

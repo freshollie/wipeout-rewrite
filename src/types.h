@@ -121,7 +121,7 @@ static inline vec3_t vec3_divf(vec3_t a, float f) {
 }
 
 static inline float vec3_len(vec3_t a) {
-	return sqrt(a.x * a.x + a.y * a.y + a.z * a.z);
+	return sqrtf(a.x * a.x + a.y * a.y + a.z * a.z);
 }
 
 static inline vec3_t vec3_cross(vec3_t a, vec3_t b) {
@@ -153,12 +153,13 @@ static inline vec3_t vec3_normalize(vec3_t a) {
 	);
 }
 
-static inline float wrap_angle(float a) {
-	a = fmod(a + M_PI, M_PI * 2);
-	if (a < 0) {
-		a += M_PI * 2;
-	}
-	return a - M_PI;
+static inline float wrap_angle(float a)
+{
+    const float two_pi = M_PI * 2.0f;
+    a -= two_pi * (int)(a / two_pi);
+    if (a >  M_PI) a -= two_pi;
+    if (a < -M_PI) a += two_pi;
+    return a;
 }
 
 rgba_t rgba_from_u32(uint32_t v);

@@ -55,7 +55,7 @@ endif
 
 # PS2 ------------------------------------------------------------------------
 ifeq ($(TARGET_PS2),1)
-	C_FLAGS  := $(C_FLAGS) -mhard-float -ffast-math -fno-tree-builtin-call-dce -fno-strict-aliasing -DTARGET_PS2 -D_EE -G0 -I$(PS2SDK)/ee/include -I$(PS2SDK)/common/include -I$(PS2SDK)/ports/include -I$(PS2DEV)/gsKit/include
+	C_FLAGS  := $(C_FLAGS) -fsingle-precision-constant -mhard-float -ffast-math -fno-tree-builtin-call-dce -fno-strict-aliasing -DTARGET_PS2 -D_EE -G0 -I$(PS2SDK)/ee/include -I$(PS2SDK)/common/include -I$(PS2SDK)/ports/include -I$(PS2DEV)/gsKit/include
 	L_FLAGS_PS2 := -Wl,-zmax-page-size=128 -T$(PS2SDK)/ee/startup/linkfile -L$(PS2DEV)/gsKit/lib -L$(PS2SDK)/ee/lib -L$(PS2SDK)/ports/lib -lgskit -ldmakit -lps2_drivers -lmc -lpatches
 # macOS ------------------------------------------------------------------------
 else ifeq ($(UNAME_S), Darwin)
